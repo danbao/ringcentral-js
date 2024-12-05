@@ -14,13 +14,13 @@ export interface ExternalsOptions {
 }
 
 export default class Externals implements ExternalsOptions {
-    public fetch = root.fetch;
+    public fetch = root.fetch || globalThis.fetch;
 
-    public Request = root.Request;
+    public Request = root.Request || globalThis.Request;
 
-    public Response = root.Response;
+    public Response = root.Response || globalThis.Response;
 
-    public Headers = root.Headers;
+    public Headers = root.Headers || globalThis.Headers;
 
     public localStorage = root.localStorage;
 
@@ -39,12 +39,14 @@ export default class Externals implements ExternalsOptions {
 
         /* istanbul ignore next */
         if (!this.fetch || !this.Response || !this.Request || !this.Headers) {
-            throw new Error('Fetch API is missing');
+            throw new Error('Fetch API is missing. Please provide fetch, Request, Response, and Headers implementations.');
         }
 
         /* istanbul ignore next */
         if (!this.localStorage) {
-            throw new Error('LocalStorage is missing');
+            // Instead of throwing error, use in-memory storage as fallback
+            const DomStorage = require('dom-storage');
+            this.localStorage = new DomStorage(null, { strict: true });
         }
     }
 }

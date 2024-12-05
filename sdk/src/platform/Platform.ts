@@ -13,7 +13,7 @@ import Auth, {AuthOptions} from './Auth';
 import Discovery from './Discovery';
 import {delay} from './utils';
 
-declare const screen: any; //FIXME TS Crap
+const isBrowser = typeof window !== 'undefined';
 
 const getParts = (url, separator) => url.split(separator).reverse()[0];
 
@@ -313,14 +313,14 @@ export default class Platform extends EventEmitter {
     /**
      * @return {string}
      */
-    private _generateCodeVerifier() {
-        let codeVerifier: any = randomBytes(32);
-        codeVerifier = codeVerifier
-            .toString('base64')
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=/g, '');
-        return codeVerifier;
+    private _generateCodeVerifier(): string {
+        // Use Web Crypto API if available, fallback to Node's crypto
+        if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+            const array = new Uint8Array(32);
+            crypto.getRandomValues(array);
+            return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+        }
+        return randomBytes(32).toString('hex');
     }
 
     /**
@@ -352,59 +352,52 @@ export default class Platform extends EventEmitter {
      *
      * Attention! This is an experimental method and it's signature and behavior may change without notice.
      */
-    public loginWindow({
+    public async loginWindow({
         url,
         width = 400,
         height = 600,
-        origin = window.location.origin,
+        origin = isBrowser ? window.location.origin : '',
         property = Constants.authResponseProperty,
         target = 'RingCentralLoginWindow',
     }: LoginWindowOptions): Promise<LoginOptions> {
-        // clear check last timeout when user open loginWindow twice to avoid leak
-        this._clearLoginWindowCheckTimeout();
+        if (!isBrowser) {
+            throw new Error('loginWindow is only available in browser environments');
+        }
+
         return new Promise((resolve, reject) => {
-            if (typeof window === 'undefined') {throw new Error('This method can be used only in browser');}
-
-            if (!url) {throw new Error('Missing mandatory URL parameter');}
-
-            const dualScreenLeft = window.screenLeft !== undefined ? window.screenLeft : 0;
-            const dualScreenTop = window.screenTop !== undefined ? window.screenTop : 0;
-
-            const screenWidth = screen.width;
-            const screenHeight = screen.height;
-
-            const left = screenWidth / 2 - width / 2 + dualScreenLeft;
-            const top = screenHeight / 2 - height / 2 + dualScreenTop;
-
             const win = window.open(
                 url,
                 target,
-                target === '_blank'
-                    ? `scrollbars=yes, status=yes, width=${width}, height=${height}, left=${left}, top=${top}`
-                    : '',
+                [
+                    'width=' + width,
+                    'height=' + height,
+                    'location=no',
+                    'directories=no',
+                    'status=no',
+                    'menubar=no',
+                    'scrollbars=no',
+                    'toolbar=no',
+                    'personalbar=no',
+                    'resizable=yes',
+                ].join(','),
             );
 
             if (!win) {
                 throw new Error('Could not open login window. Please allow popups for this site');
             }
 
-            if (win.focus) {win.focus();}
-            // clear listener when user open loginWindow twice to avoid leak
-            if (this._loginWindowEventListener) {
-                window.removeEventListener('message', this._loginWindowEventListener);
-            }
-            this._loginWindowEventListener = e => {
+            this._loginWindowEventListener = (e: MessageEvent) => {
                 try {
-                    if (e.origin !== origin) {return;}
-                    if (!e.data || !e.data[property]) {return;} // keep waiting
-                    this._clearLoginWindowCheckTimeout();
+                    if (!e.data || !e.data[property] || e.origin !== origin) {return;}
+
                     win.close();
                     window.removeEventListener('message', this._loginWindowEventListener);
                     this._loginWindowEventListener = null;
                     const loginOptions = this.parseLoginRedirect(e.data[property]);
 
-                    if (!loginOptions.code && !loginOptions.access_token)
-                        {throw new Error('No authorization code or token');}
+                    if (!loginOptions.code && !loginOptions.access_token) {
+                        throw new Error('No authorization code or token');
+                    }
 
                     resolve(loginOptions);
                 } catch (e1) {
@@ -417,6 +410,8 @@ export default class Platform extends EventEmitter {
     }
 
     private _createLoginWindowCheckTimeout(win, reject) {
+        if (!isBrowser) return;
+        
         this._loginWindowCheckTimeout = setTimeout(() => {
             if (win.closed) {
                 if (this._loginWindowEventListener) {
@@ -432,6 +427,8 @@ export default class Platform extends EventEmitter {
     }
 
     private _clearLoginWindowCheckTimeout() {
+        if (!isBrowser) return;
+        
         if (this._loginWindowCheckTimeout) {
             clearTimeout(this._loginWindowCheckTimeout);
             this._loginWindowCheckTimeout = null;

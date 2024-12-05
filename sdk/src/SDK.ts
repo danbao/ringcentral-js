@@ -48,12 +48,18 @@ export class SDK {
         sandbox: 'https://platform.devtest.ringcentral.com',
         production: 'https://platform.ringcentral.com',
     };
-    public static handleLoginRedirect(origin, win) {
+    
+    public static handleLoginRedirect(origin?: string, win?: any) {
+        // Skip if not in browser environment
+        if (typeof window === 'undefined') return;
+        
         win = win || window;
         const response = win.location.search ? win.location.search : win.location.hash;
         const msg = {};
         msg[Constants.authResponseProperty] = response;
-        win.opener.postMessage(msg, origin || win.location.origin);
+        if (win.opener && win.opener.postMessage) {
+            win.opener.postMessage(msg, origin || win.location.origin);
+        }
     }
 
     public constructor(options: SDKOptions = {}) {
